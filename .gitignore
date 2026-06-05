@@ -1,0 +1,24 @@
+# 컴파일 결과물
+mechanico
+
+# 체크포인트 (용량 큼)
+ai/checkpoints/
+checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# AI 상태 파일
+/tmp/mechanico_ai_status.json
+
+# macOS
+.DS_Store
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+*.swo
