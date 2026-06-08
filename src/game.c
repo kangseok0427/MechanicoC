@@ -521,7 +521,7 @@ void dungeon_generate(Dungeon *d, int zone, int floor) {
     for (int y = 0; y < DUNGEON_H; y++)
         for (int x = 0; x < DUNGEON_W; x++) {
             int r = rand() % 10;
-            d->tiles[y][x].type = r < 6 ? TILE_BATTLE : TILE_EMPTY;
+            d->tiles[y][x].type = r < 3 ? TILE_BATTLE : TILE_EMPTY;
         }
     d->tiles[2][2].type = TILE_EMPTY;
     d->tiles[4][4].type = TILE_EXIT;

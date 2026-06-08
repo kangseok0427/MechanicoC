@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from env import MechanicoEnv, get_valid_mask, STATE_SIZE, ACTION_SIZE
 from dqn_model import DQN
 from replay_buffer import ReplayBuffer
-from renderer import render
 
 # ── 하이퍼파라미터 ──
 GAMMA       = 0.97
@@ -156,16 +155,6 @@ def train():
                 s_t = torch.tensor(obs, device=DEVICE)
                 action = online.select_action(s_t, mask)
 
-            ai_info = {
-                "ep": episode,
-                "avg": float(np.mean(recent_rewards)) if recent_rewards else 0.0,
-                "epsilon": eps,
-                "loss": loss_val,
-                "stage": curriculum_idx + 1,
-                "steps": total_steps,
-            }
-            render(state, ai_info)
-
             next_obs, reward, done, next_state = env.step(action)
 
             # 이벤트별 딜레이
@@ -211,7 +200,7 @@ def train():
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(online.parameters(), 10.0)
+                nn.utils.clip_grad_norm_(online.parameters(), 1.0)
                 optimizer.step()
                 soft_update(online, target, TAU)
 
