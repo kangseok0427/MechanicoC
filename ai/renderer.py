@@ -57,6 +57,15 @@ def render(state: dict, ai_info: dict):
               f"cleared:{state.get('cleared', 0)}  "
               f"pos:({d.get('x', '?')},{d.get('y', '?')})")
 
+    if event in ("battle_win", "dungeon_clear", "episode_end"):
+        cleared = state.get("cleared", 0)
+        print(f"\n  ✅ {'던전 클리어!' if event == 'dungeon_clear' else '전투 승리!'}"
+              f"  총 클리어: {cleared}회")
+    if event == "gameover" or phase == "gameover":
+        print(f"\n  ❌ GAME OVER  총 클리어: {state.get('cleared', 0)}회")
+    if phase == "battle_lose":
+        print(f"\n  💀 전투 패배...")
+
     valid = (b.get("valid_actions") or state.get("valid_actions") or [])
     if valid:
         print(f"\n  actions: {', '.join(valid)}")

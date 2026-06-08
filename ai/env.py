@@ -125,18 +125,42 @@ class MechanicoEnv:
     def _party_hp(self, s):
         return sum(m["hp"] for m in (s.get("party") or []) if m)
 
+    def _party_alive_count(self, s):
+        return sum(1 for m in (s.get("party") or []) if m and m.get("alive"))
+
     def _reward(self, prev: dict, curr: dict) -> float:
         r = 0.0
         phase    = curr.get("phase", "")
         last_dmg = (curr.get("battle") or {}).get("last_dmg", 0)
+        event    = curr.get("event", "")
+
         if prev.get("phase") == "battle":
+            # 딜 보상
             r += last_dmg * 0.01
+            # HP 손실 페널티
             r -= (self._party_hp(prev) - self._party_hp(curr)) * 0.05
-        if phase == "battle_win":  r += 1.0
+
+        # KO 페널티 - 이전보다 생존자 줄었을 때
+        prev_alive = self._party_alive_count(prev)
+        curr_alive = self._party_alive_count(curr)
+        ko_count   = max(0, prev_alive - curr_alive)
+        r -= ko_count * 0.5
+
+        # 매 턴 생존 보너스 (살아있는 파티원 수만큼)
+        if phase == "battle":
+            r += curr_alive * 0.02
+
+        # 전투 결과
+        if phase == "battle_win":
+            # 클리어 시 생존자 수에 따라 보너스
+            r += 1.0 + curr_alive * 0.3
         if phase == "battle_lose": r -= 0.5
         if phase == "gameover":    r -= 5.0
+
+        # 던전 클리어 - 생존자 많을수록 보너스
         if curr.get("cleared", 0) > prev.get("cleared", 0):
-            r += 2.0 * curr.get("cleared", 1)
+            r += 2.0 * curr.get("cleared", 1) + curr_alive * 0.5
+
         r += 0.001
         return r
 
