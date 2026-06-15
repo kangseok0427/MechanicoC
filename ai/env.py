@@ -78,7 +78,7 @@ class MechanicoEnv:
         )
 
     def _read(self) -> dict:
-        """is_your_turn=True인 JSON이 올 때까지 읽음"""
+        """is_your_turn=True 또는 done 이벤트가 올 때까지 읽음"""
         while True:
             line = self.proc.stderr.readline()
             if not line:
@@ -91,13 +91,15 @@ class MechanicoEnv:
             except json.JSONDecodeError:
                 continue
 
-            # 항상 최신 상태 저장 (렌더링용)
             self.state = state
 
-            # is_your_turn=True면 이게 Python이 응답해야 할 타이밍
+            # 종료 이벤트면 바로 리턴
+            if state.get("event") in ("gameover", "dungeon_clear"):
+                return state
+
+            # 행동이 필요한 타이밍
             if state.get("is_your_turn"):
                 return state
-            # False면 그냥 계속 읽음 (적 턴, 이벤트 등)
 
     def _send(self, action_str: str):
         try:
@@ -119,7 +121,9 @@ class MechanicoEnv:
         if not next_s:
             return np.zeros(STATE_SIZE, dtype=np.float32), -5.0, True, {}
         reward = self._reward(prev, next_s)
-        done   = next_s.get("phase") in ("gameover", "clear")
+        # 던전 클리어 or 게임오버 = 에피소드 종료
+        done = next_s.get("event") in ("dungeon_clear", "gameover") \
+            or next_s.get("phase") in ("gameover", "clear")
         return state_to_vector(next_s), reward, done, next_s
 
     def _party_hp(self, s):
@@ -131,31 +135,35 @@ class MechanicoEnv:
     def _reward(self, prev: dict, curr: dict) -> float:
         r = 0.0
         phase    = curr.get("phase", "")
+        event    = curr.get("event", "")
         last_dmg = (curr.get("battle") or {}).get("last_dmg", 0)
 
         if prev.get("phase") == "battle":
-            r += last_dmg * 0.005        # 딜 보상 줄임
-            r -= (self._party_hp(prev) - self._party_hp(curr)) * 0.02  # HP 손실 페널티 줄임
+            r += last_dmg * 0.02         # 공격 보상
+            r -= (self._party_hp(prev) - self._party_hp(curr)) * 0.02
 
         # KO 페널티
         prev_alive = self._party_alive_count(prev)
         curr_alive = self._party_alive_count(curr)
-        ko_count   = max(0, prev_alive - curr_alive)
-        r -= ko_count * 0.3
+        r -= max(0, prev_alive - curr_alive) * 0.3
 
         # 매 턴 생존 보너스
         if phase == "battle":
             r += curr_alive * 0.01
+            # 방어 행동 소폭 페널티 (공격 유도)
+            if event == "action_result" and prev.get("event") == "your_turn":
+                # 데미지 없으면 방어 가능성 높음 → 페널티
+                if last_dmg == 0:
+                    r -= 0.05
 
         # 전투 결과
-        if phase == "battle_win":
-            r += 1.0 + curr_alive * 0.2
+        if phase == "battle_win":  r += 1.0 + curr_alive * 0.2
         if phase == "battle_lose": r -= 0.5
         if phase == "gameover":    r -= 2.0
 
-        # 던전 클리어 - 고정값으로
-        if curr.get("cleared", 0) > prev.get("cleared", 0):
-            r += 2.0 + curr_alive * 0.3
+        # 던전 클리어
+        if event == "dungeon_clear":
+            r += 3.0 + curr_alive * 0.5
 
         r += 0.001
         return r

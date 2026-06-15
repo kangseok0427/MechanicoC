@@ -14,7 +14,7 @@ from replay_buffer import ReplayBuffer
 
 # ── 하이퍼파라미터 ──
 GAMMA       = 0.97
-LR          = 1e-4
+LR          = 3e-5     # loss 폭발 방지
 BATCH       = 64
 BUFFER_SIZE = 50_000
 TAU         = 0.005
@@ -27,7 +27,7 @@ SAVE_EVERY  = 200
 DELAY_BATTLE  = 0.5
 DELAY_DUNGEON = 0.2
 DELAY_HUB     = 0.3
-DELAY_DONE    = 1.0
+DELAY_DONE    = 1.5
 
 CURRICULUM = [
     {"name": "stage1", "target_reward": 1.0},
@@ -39,7 +39,7 @@ CURRICULUM = [
 
 CHECKPOINT_PATH = "checkpoints/train_state.json"
 MODEL_PATH      = "checkpoints/model_latest.pt"
-STATUS_PATH     = "checkpoints/mechanico_status.json"   # 가온이 참고용
+STATUS_PATH     = "/Users/lucas/MechanicoC/checkpoints/mechanico_status.json"
 
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Device: {DEVICE}")
@@ -59,8 +59,6 @@ def save_train_state(episode, total_steps, curriculum_idx, recent_rewards, loss_
     state = {
         "episode":        episode,
         "total_steps":    total_steps,
-        "curriculum_idx": curriculum_idx,
-        "recent_rewards": recent_rewards,
         "loss_val":       loss_val,
         "epsilon":        get_epsilon(total_steps),
     }
@@ -69,55 +67,55 @@ def save_train_state(episode, total_steps, curriculum_idx, recent_rewards, loss_
 
 def load_train_state(online, optimizer):
     if not os.path.exists(CHECKPOINT_PATH) or not os.path.exists(MODEL_PATH):
-        print("[체크포인트] 없음 → 처음부터 시작")
+        print("[checkpoint] none -> start fresh")
         return 0, 0, 0, [], 0.0
     with open(CHECKPOINT_PATH) as f:
         state = json.load(f)
     online.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
     ep    = state["episode"]
     steps = state["total_steps"]
-    cidx  = state["curriculum_idx"]
-    rews  = state["recent_rewards"]
     loss  = state["loss_val"]
-    print(f"[체크포인트] 로드 완료 → EP:{ep} STEPS:{steps} STAGE:{cidx+1} EPS:{get_epsilon(steps):.3f}")
-    return ep, steps, cidx, rews, loss
+    # 스테이지는 항상 1부터, recent_rewards도 리셋
+    print(f"[checkpoint] loaded -> EP:{ep} STEPS:0(reset) STAGE:1 EPS:1.0")
+    return ep, 0, 0, [], loss
 
 
 # ── 가온이용 상태 저장 ──
 def update_gaon_status(episode, total_steps, curriculum_idx, recent_rewards,
                         loss_val, game_state, event_type):
-    avg = float(np.mean(recent_rewards)) if recent_rewards else 0.0
+    avg   = float(np.mean(recent_rewards)) if recent_rewards else 0.0
     stage = CURRICULUM[min(curriculum_idx, len(CURRICULUM)-1)]
 
     party = game_state.get("party", [])
     alive = [m["name"] for m in party if m and m.get("alive")]
     ko    = [m["name"] for m in party if m and not m.get("alive")]
 
+    is_clear = event_type == "dungeon_clear"
+
     status = {
         # 학습 정보
-        "episode":     episode,
-        "total_steps": total_steps,
-        "stage":       stage["name"],
-        "epsilon":     round(get_epsilon(total_steps), 3),
-        "loss":        round(loss_val, 4),
-        "avg_reward":  round(avg, 3),
-        "recent_rewards": recent_rewards[-5:],   # 최근 5개만
+        "episode":        episode,
+        "total_steps":    total_steps,
+        "stage":          stage["name"],
+        "epsilon":        round(get_epsilon(total_steps), 3),
+        "loss":           round(loss_val, 4),
+        "avg_reward":     round(avg, 3),
+        "recent_rewards": recent_rewards[-5:],
 
         # 게임 정보
-        "event":       event_type,
-        "phase":       game_state.get("phase", ""),
-        "zone":        game_state.get("zone", 1),
-        "cleared":     game_state.get("cleared", 0),
-        "gold":        game_state.get("gold", 0),
-        "party_alive": alive,
-        "party_ko":    ko,
+        "event":          event_type,
+        "is_clear":       is_clear,      # 가온이 디코 알림용
+        "phase":          game_state.get("phase", ""),
+        "zone":           game_state.get("zone", 1),
+        "cleared":        game_state.get("cleared", 0),
+        "gold":           game_state.get("gold", 0),
+        "party_alive":    alive,
+        "party_ko":       ko,
     }
 
-    # 전투 중이면 적 정보도
     b = game_state.get("battle") or {}
     if b.get("enemies"):
-        alive_enemies = [e["name"] for e in b["enemies"] if e.get("alive")]
-        status["enemies_alive"] = alive_enemies
+        status["enemies_alive"] = [e["name"] for e in b["enemies"] if e.get("alive")]
         status["battle_turn"]   = b.get("turn", 0)
 
     with open(STATUS_PATH, "w", encoding="utf-8") as f:
@@ -132,7 +130,6 @@ def train():
     buffer    = ReplayBuffer(BUFFER_SIZE)
     os.makedirs("checkpoints", exist_ok=True)
 
-    # 이어하기
     episode, total_steps, curriculum_idx, recent_rewards, loss_val = \
         load_train_state(online, optimizer)
 
@@ -142,7 +139,7 @@ def train():
     while True:
         stage = CURRICULUM[min(curriculum_idx, len(CURRICULUM)-1)]
         obs, state = env.reset()
-        ep_reward = 0.0
+        ep_reward  = 0.0
 
         while True:
             eps  = get_epsilon(total_steps)
@@ -157,7 +154,7 @@ def train():
 
             next_obs, reward, done, next_state = env.step(action)
 
-            # 이벤트별 딜레이
+            # 딜레이
             event = next_state.get("event", "")
             phase = next_state.get("phase", "")
             if done:
@@ -200,7 +197,7 @@ def train():
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(online.parameters(), 1.0)
+                nn.utils.clip_grad_norm_(online.parameters(), 0.5)  # 더 타이트하게
                 optimizer.step()
                 soft_update(online, target, TAU)
 
@@ -212,11 +209,9 @@ def train():
         if len(recent_rewards) > 20: recent_rewards.pop(0)
         avg = np.mean(recent_rewards)
 
-        # 에피소드 끝마다 학습 상태 저장 (이어하기용)
         save_train_state(episode, total_steps, curriculum_idx,
                          recent_rewards, loss_val, online, optimizer)
 
-        # 에피소드 끝 가온이 상태 갱신
         update_gaon_status(episode, total_steps, curriculum_idx,
                            recent_rewards, loss_val, state, "episode_end")
 
@@ -235,7 +230,7 @@ def train():
             if curriculum_idx < len(CURRICULUM) - 1:
                 curriculum_idx += 1
             else:
-                print("*** 모든 스테이지 클리어! 계속 학습 중... ***")
+                print("*** all stages cleared! continuing... ***")
 
     env.close()
 
