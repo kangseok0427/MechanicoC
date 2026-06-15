@@ -35,6 +35,8 @@ typedef enum { TARGET_SINGLE, TARGET_SELF,
 typedef enum { ACTION_ATTACK, ACTION_SKILL_0, ACTION_SKILL_1,
                ACTION_SKILL_2, ACTION_DEFEND, ACTION_FLEE } ActionType;
 
+typedef enum { ENEMY_NORMAL, ENEMY_ELITE, ENEMY_BOSS } EnemyGrade;
+
 /* ── 구조체 ── */
 typedef struct { EffectType type; int value; int duration; } Buff;
 
@@ -66,8 +68,6 @@ typedef struct {
     int      is_stunned;
     int      taunt_target;
 } Character;
-
-typedef enum { ENEMY_NORMAL, ENEMY_ELITE, ENEMY_BOSS } EnemyGrade;
 
 typedef struct {
     Character  base;
@@ -113,15 +113,17 @@ typedef struct {
     char        last_event[64];
 } GameState;
 
-/* ── game.c 함수 선언 ── */
-void game_init(GameState *gs);
-void emit_event(GameState *gs, const char *event, int is_your_turn);
+/* ── AI 커맨드 (io.c) ── */
+typedef struct { char cmd[32]; int args[4]; } AICmd;
 
-/* 파티 */
+/* ── init.c ── */
+void game_init(GameState *gs);
+
+/* ── party.c ── */
 int  party_alive_count(const Party *p);
 void party_rest(Party *p, int cost);
 
-/* 전투 */
+/* ── battle.c ── */
 void build_turn_order(GameState *gs);
 void do_attack(GameState *gs, int actor_idx, int target_idx);
 void do_skill(GameState *gs, int actor_idx, int skill_idx, int target_idx);
@@ -132,12 +134,26 @@ void battle_start(GameState *gs, Enemy *enemies, int count, int is_boss);
 int  battle_check_end(GameState *gs);
 void battle_end_turn(GameState *gs);
 
-/* 던전 */
+/* ── dungeon.c ── */
 void dungeon_generate(Dungeon *d, int zone, int floor);
 int  dungeon_valid_dirs(const Dungeon *d, int *out_dirs);
 int  dungeon_move(GameState *gs, int dir);
 
-/* 적 */
+/* ── enemy.c ── */
 void get_enemies_for_zone(int zone, Enemy *out, int *count, int is_boss);
+
+/* ── io.c ── */
+void emit_event(GameState *gs, const char *event, int is_your_turn);
+int  parse_cmd(AICmd *out);
+
+/* ── ui.c ── */
+void cls(void);
+void print_bar(int cur, int mx, int width);
+void print_dungeon_map(GameState *gs);
+void print_ai_status(void);
+void print_party(GameState *gs);
+void print_enemies(GameState *gs);
+void draw_screen(GameState *gs, int ai_mode);
+void manual_battle_input(GameState *gs, int actor_idx, int ai_mode);
 
 #endif
